@@ -38,8 +38,22 @@ CREATE TABLE IF NOT EXISTS qa_pairs (
 );
 `;
 
-// Auto-migrate on import
-pool.query(SCHEMA).catch((e) => {
-  console.error("[db] Migration failed:", e.message);
-  process.exit(1);
-});
+// Auto-migrate on import — retry up to 10 times with backoff so Railway's
+// PostgreSQL plugin has time to become reachable before we give up.
+async function migrate(attempt = 1): Promise<void> {
+  try {
+    await pool.query(SCHEMA);
+    console.log("[db] Migration complete");
+  } catch (e: any) {
+    console.error(`[db] Migration failed (attempt ${attempt}):`, e.message);
+    if (attempt >= 10) {
+      console.error("[db] Giving up after 10 attempts — check DATABASE_URL");
+      process.exit(1);
+    }
+    const delay = Math.min(attempt * 2000, 15000);
+    await new Promise((r) => setTimeout(r, delay));
+    await migrate(attempt + 1);
+  }
+}
+
+migrate();
