@@ -21,6 +21,88 @@ async function send(text: string): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Webhook registration
+// ---------------------------------------------------------------------------
+export async function setupWebhook(baseUrl: string): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg) return;
+  const webhookUrl = `${baseUrl}/telegram-webhook`;
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${cfg.token}/setWebhook`,
+      { url: webhookUrl, allowed_updates: ["message"] },
+      { timeout: 10000 }
+    );
+    console.log("[telegram] Webhook registered:", webhookUrl);
+  } catch (e) {
+    console.warn("[telegram] Failed to register webhook:", e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Incoming update handler — called from POST /telegram-webhook
+// ---------------------------------------------------------------------------
+export async function handleUpdate(
+  update: TelegramUpdate,
+  onRun: () => void,
+  getStats: () => Promise<string>
+): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg) return;
+
+  const msg = update.message;
+  if (!msg?.text) return;
+
+  // Only respond to the configured chat ID (security: ignore anyone else)
+  if (String(msg.chat.id) !== cfg.chatId) {
+    console.warn("[telegram] Ignoring message from unknown chat:", msg.chat.id);
+    return;
+  }
+
+  const text = msg.text.trim().toLowerCase();
+
+  if (text === "/run" || text === "/run@" + (await getBotUsername(cfg.token))) {
+    await send("🤖 Starting a pipeline run now...");
+    onRun();
+  } else if (text === "/stats") {
+    const stats = await getStats();
+    await send(stats);
+  } else if (text === "/help") {
+    await send(
+      "<b>Job Bot commands</b>\n\n" +
+      "/run — trigger a pipeline run now\n" +
+      "/stats — show application counts\n" +
+      "/help — show this message"
+    );
+  } else {
+    await send("Unknown command. Send /help for options.");
+  }
+}
+
+// Cache bot username so we only fetch it once
+let cachedUsername: string | null = null;
+async function getBotUsername(token: string): Promise<string> {
+  if (cachedUsername) return cachedUsername;
+  try {
+    const res = await axios.get(`https://api.telegram.org/bot${token}/getMe`, { timeout: 5000 });
+    cachedUsername = (res.data as { result: { username: string } }).result.username;
+    return cachedUsername ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export interface TelegramUpdate {
+  message?: {
+    text?: string;
+    chat: { id: number };
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Outbound notification helpers
+// ---------------------------------------------------------------------------
 export async function sendRunStart(newCount: number): Promise<void> {
   await send(`🤖 Job Bot started — ${newCount} new listings`);
 }

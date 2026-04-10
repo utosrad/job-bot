@@ -3,6 +3,7 @@ import cron from "node-cron";
 import { runPipeline } from "./pipeline.ts";
 import { pool } from "./db.ts";
 import { updateAnswer } from "./qa.ts";
+import { setupWebhook, handleUpdate, type TelegramUpdate } from "./telegram.ts";
 
 const app = new Hono();
 
@@ -13,12 +14,25 @@ cron.schedule(schedule, () => runPipeline().catch(console.error), {
 });
 console.log(`[cron] Scheduled: ${schedule}`);
 
+// Register Telegram webhook once server is up
+// Railway sets RAILWAY_PUBLIC_DOMAIN automatically
+const domain = process.env.RAILWAY_PUBLIC_DOMAIN;
+if (domain) {
+  setupWebhook(`https://${domain}`).catch(console.error);
+} else if (process.env.PUBLIC_URL) {
+  setupWebhook(process.env.PUBLIC_URL).catch(console.error);
+} else {
+  console.warn("[telegram] No RAILWAY_PUBLIC_DOMAIN or PUBLIC_URL set — webhook not registered");
+}
+
 // Run immediately on start if requested
 if (process.env.RUN_ON_START === "true") {
   runPipeline().catch(console.error);
 }
 
+// ---------------------------------------------------------------------------
 // Routes
+// ---------------------------------------------------------------------------
 app.get("/", (c) => c.json({ status: "ok", service: "job-bot" }));
 
 app.post("/run", async (c) => {
@@ -56,12 +70,32 @@ app.get("/qa", async (c) => {
   return c.json(res.rows);
 });
 
-// Manual QA override — call this to correct a bad Kimi answer
 app.post("/qa", async (c) => {
   const { question, answer } = await c.req.json<{ question?: string; answer?: string }>();
   if (!question || !answer) return c.json({ error: "question and answer required" }, 400);
   await updateAnswer(question, answer);
   return c.json({ saved: true });
+});
+
+// Telegram webhook — Telegram POSTs updates here
+app.post("/telegram-webhook", async (c) => {
+  const update = await c.req.json<TelegramUpdate>();
+
+  const getStats = async (): Promise<string> => {
+    const res = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'applied') AS applied,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+        COUNT(*) AS total
+      FROM seen_jobs
+    `);
+    const r = res.rows[0];
+    return `📊 <b>Stats</b>\nApplied: ${r.applied}\nPending: ${r.pending}\nFailed: ${r.failed}\nTotal seen: ${r.total}`;
+  };
+
+  await handleUpdate(update, () => runPipeline().catch(console.error), getStats);
+  return c.json({ ok: true });
 });
 
 export default { port: process.env.PORT ?? 3000, fetch: app.fetch };
