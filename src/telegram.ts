@@ -112,13 +112,26 @@ export async function sendApplicationResult(
   role: string,
   status: string,
   platform: string,
-  url: string
+  originalUrl: string,
+  resolvedUrl?: string
 ): Promise<void> {
   const icon =
     status === "success" ? "✅ Applied" :
     status === "manual_required" ? "⚠️ Manual needed" :
     "❌ Failed";
-  await send(`${icon}\n<b>${company}</b> — ${role}\nPlatform: ${platform}\n${url}`);
+
+  // Human-readable platform label ("workday" → "Workday", "unknown" → "Unknown ATS")
+  const platformLabel = platform === "unknown"
+    ? "Unknown ATS"
+    : platform.charAt(0).toUpperCase() + platform.slice(1);
+
+  // Show both URLs when the redirect resolved to something different
+  const urlChanged = resolvedUrl && resolvedUrl !== originalUrl;
+  const urlLine = urlChanged
+    ? `<a href="${resolvedUrl}">Direct link</a> (via <a href="${originalUrl}">listing</a>)`
+    : `<a href="${originalUrl}">Apply link</a>`;
+
+  await send(`${icon}\n<b>${company}</b> — ${role}\nPlatform: ${platformLabel}\n${urlLine}`);
 }
 
 export async function sendRunSummary(

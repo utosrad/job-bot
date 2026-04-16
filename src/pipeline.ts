@@ -34,9 +34,9 @@ export async function runPipeline(): Promise<void> {
 
       // Log to DB
       await pool.query(
-        `INSERT INTO applications (job_id, ats_platform, submission_status, rezzy_resume_url, cover_letter_url, error_message)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [listing.id, result.platform, result.status, resumeUrl, coverLetterUrl, result.error ?? null]
+        `INSERT INTO applications (job_id, ats_platform, submission_status, rezzy_resume_url, cover_letter_url, error_message, resolved_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [listing.id, result.platform, result.status, resumeUrl, coverLetterUrl, result.error ?? null, result.resolvedUrl]
       );
 
       // Log to Sheets
@@ -54,7 +54,7 @@ export async function runPipeline(): Promise<void> {
       });
 
       // Notify Telegram
-      await sendApplicationResult(listing.company_name, listing.title, result.status, result.platform, listing.url);
+      await sendApplicationResult(listing.company_name, listing.title, result.status, result.platform, listing.url, result.resolvedUrl);
 
       if (result.status === "success") applied++;
       else if (result.status === "manual_required") manual++;

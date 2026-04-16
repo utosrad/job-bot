@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS applications (
   submission_status TEXT,
   rezzy_resume_url TEXT,
   cover_letter_url TEXT,
-  error_message TEXT
+  error_message TEXT,
+  resolved_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS qa_pairs (
@@ -38,11 +39,17 @@ CREATE TABLE IF NOT EXISTS qa_pairs (
 );
 `;
 
+// Idempotent column additions for deployments where the table already exists
+const MIGRATIONS = `
+  ALTER TABLE applications ADD COLUMN IF NOT EXISTS resolved_url TEXT;
+`;
+
 // Auto-migrate on import — retry up to 10 times with backoff so Railway's
 // PostgreSQL plugin has time to become reachable before we give up.
 async function migrate(attempt = 1): Promise<void> {
   try {
     await pool.query(SCHEMA);
+    await pool.query(MIGRATIONS);
     console.log("[db] Migration complete");
   } catch (e: any) {
     console.error(`[db] Migration failed (attempt ${attempt}):`, e.message);
